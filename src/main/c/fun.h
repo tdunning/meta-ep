@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <math.h>
-#include <malloc.h>
 
 typedef struct {
     int n;			/* number of direct parameters */

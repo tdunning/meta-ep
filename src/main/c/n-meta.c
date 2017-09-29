@@ -1,10 +1,77 @@
+/*
+   variable dimensional optimization.
+
+   it is assumed that the optimization space is of very high
+   dimensionality, but that the state variables only specified some of
+   these coordinates.  the coordinates that are specified are mutated
+   using directional ep.  coordinates are lost or added to the state
+   variable as part of the mutation.
+
+   the optimization actually optimizes the score function plus the log
+   of the number of active coordinates.  this penalty puts somewhat of
+   a premium on simpler representations.
+
+   */
+
 #include <stdio.h>
-#include <stdlib.h>
 #include <math.h>
+#include <malloc.h>
 #include <string.h>
 
-#include "getopt.h"
-#include "fun.h"
+typedef struct {
+    int n;			/* number of direct parameters */
+    int age;			/* number of generations that this one has lasted */
+    int *i;			/* index of state variables */
+    double *v;			/* n values for the direct */
+    double *ball;		/* uncorrelated mutation rate */
+    double *m;			/* correlated mutation direction */
+    double k;			/* number of variables to add or drop */
+    double score;		/* fitness for sorting */
+} state;
+
+typedef double (*function)(state *s);
+
+typedef struct {
+    char *name;
+    int dim;
+    function f;
+    double lower, upper;
+    double target;
+} funtab_entry;
+
+funtab_entry funtab[];
+
+double drand48();
+
+/* return a normally distributed random variable with mean 0, sd = 1 */
+double gauss(void);
+
+double uniform(double a, double b);
+
+/* a long narrow quadratic value */
+double valley(state *s);
+
+/* cool spiral function */
+double spiral(state *s);
+
+/* de Yong's functions */
+double fun_1(state *s);
+double fun_2(state *s);
+double fun_3(state *s);
+double fun_4(state *s);
+double fun_5(state *s);
+
+/* Bohachevky's gallery of rogues */
+double fun_6(state *s);
+double fun_7(state *s);
+double fun_8(state *s);
+
+/* GA contest functions */
+double con_1(state *s);
+double con_2(state *s);
+double con_3(state *s);
+double con_4(state *s);
+double con_5(state *s);
 
 typedef struct {
     int old_ep;
@@ -12,7 +79,6 @@ typedef struct {
     int mutation_cooling;
     int recorded_step;
     int directional_mutation;
-    int crossover;
     double mutation_rate;
     double decay;
 } evo_options;
@@ -63,13 +129,16 @@ void mutate(state *x, evo_options opt)
 		/* update our direction */
 		err = 1+gauss();
 		for (i=0;i<x->n;i++) {
-		    x->m[i] = err * x->m[i] + x->ball * gauss();
-		}
+		    x->m[i] = err * x->m[i] + x->ball[i] * gauss();
 
-		/* then the non-directional mutation rate gets tweaked..
-		   note that there is some coupling which
-		   keeps the mutation cloud from getting too terribly skinny */
-		x->ball = - 1.1 * (x->ball + mag(x->m, x->n)/10) * log(1-drand48());
+		    /* then the non-directional mutation rate gets
+		       tweaked..  note that there is some coupling
+		       which keeps the mutation cloud from getting too
+		       terribly skinny */
+		    x->ball[i] =
+			- (x->ball[i] + mag(x->m, x->n)/10) * log(1-drand48());
+
+		}
 
 		/* with recorded steps, we just take the current step */
 		for (i=0;i<x->n;i++) {
@@ -81,71 +150,48 @@ void mutate(state *x, evo_options opt)
 		   mutation */
 		err = 1+gauss();
 		for (i=0;i<x->n;i++) {
-		    x->v[i] += err * x->m[i] + x->ball * gauss();
+		    x->v[i] += err * x->m[i] + x->ball[i] * gauss();
 		}
 
 		/* update our direction */
 		err = 1+gauss();
 		for (i=0;i<x->n;i++) {
-		    x->m[i] = err * x->m[i] + x->ball * gauss();
+		    x->m[i] = err * x->m[i] + x->ball[i] * gauss();
+
+		    /* then the non-directional mutation rate gets
+		       tweaked..  note that there is some coupling
+		       which keeps the mutation cloud from getting too
+		       terribly skinny */
+
+		    x->ball[i] =
+			- (x->ball[i] + mag(x->m, x->n)/10) * log(1-drand48());
 		}
 
-		/* then the non-directional mutation rate gets tweaked..
-		   note that there is some coupling which
-		   keeps the mutation cloud from getting too terribly skinny */
-		x->ball = - (x->ball + mag(x->m, x->n)/10) * log(1-drand48());
 	    }
 	}
 	else {			/* non-directional mutation */
 	    double dx, sum;
 
-	    if (opt.meta_mutate == 1) {
-		sum = 0;
-		for (i=0;i<x->n;i++) {
-		    dx = x->ball * gauss();
-		    sum = sum + dx*dx;
-		    x->v[i] += dx;
-		}
-		if (opt.recorded_step) {
-		    x->ball = sqrt(sum/x->n);
-		}
-		else {
-		    x->ball = - x->ball * exp(1-drand48());
-		}
+	    sum = 0;
+	    for (i=0;i<x->n;i++) {
+		dx = x->ball[i] * gauss();
+		sum = hypot(sum, dx);
+		x->v[i] += dx;
+	    }
+
+	    if (opt.recorded_step) {
+		x->ball[i] = sum/sqrt((double) x->n);
 	    }
 	    else {
-		if (opt.recorded_step) {
-		    /* with recorded step, we find a step to take and then
-		       set the mutation vector using that step */
-		    sum = 0;
-		    for (i=0;i<x->n;i++) {
-			dx = x->m[i] * gauss();
-			sum = sum + dx*dx;
-			x->m[i] = dx;
-			x->v[i] += dx;
-		    }
-		    x->ball = sqrt(sum/x->n);
-		}
-		else {
-		    /* without recorded step, we find a step to take and then
-		       set the mutation vector by self-similar mutation */
-		    sum = 0;
-		    for (i=0;i<x->n;i++) {
-			dx = x->m[i] * gauss();
-			sum = sum + dx*dx;
-			x->v[i] += dx;
-			x->m[i] = - x->m[i] * exp(1-drand48());
-		    }
-		    x->ball = sqrt(sum/x->n);
-		}
+		x->ball[i] = - x->ball * log(1-drand48());
 	    }
 	}
     }
     else {			/* use only the global mutation rate */
 	for (i=0;i<x->n;i++) {
 	    x->v[i] += opt.mutation_rate * gauss();
+	    x->ball[i] = opt.mutation_rate;
 	}
-	x->ball = opt.mutation_rate;
     }
 	
 }
@@ -161,7 +207,6 @@ state *create_state(funtab_entry *f,
     dim = f->dim;
     r->n = dim;
     r->v = calloc(dim, sizeof(*r->v));
-    r->m = calloc(dim, sizeof(*r->m));
     for (i=0;i<dim;i++) {
 	if (i == x_coord) {
 	    r->v[i] = uniform(xmin, xmax);
@@ -172,8 +217,8 @@ state *create_state(funtab_entry *f,
 	else {
 	    r->v[i] = uniform(f->lower, f->upper);
 	}
-	r->m[i] = (xmax-xmin)/10;
     }
+    r->m = calloc(dim, sizeof(*r->m));
     /* the initial mutation rate is pretty low... meta mutation will increase
        it if that helps */
     r->ball = hypot(xmax-xmin, ymax-ymin)/10;
@@ -190,33 +235,8 @@ void duplicate(state *r, state *x)
     r->age = 0;
 }
 
-void crossover(state *r, state *x, state **others, int survivors)
+int compare_scores(state **a, state **b)
 {
-    r->ball = x->ball;
-    memcpy(r->v, x->v, x->n * sizeof(*r->v));
-    memcpy(r->m, x->m, x->n * sizeof(*r->m));
-    r->age = 0;
-
-    /* first parent determines whether to mate */
-    r->parents = -1.1 * r->parents * log(1-drand48());
-    if (r->parents < -log(1-drand48())) {
-	int i, n;
-	double mix;
-	n = floor(survivors * drand48());
-	mix = drand48();
-	for (i=0;i<r->n;i++) {
-	    r->v[i] = mix * r->v[i] + (1-mix) * others[n]->v[i];
-	    r->m[i] = mix * r->m[i] + (1-mix) * others[n]->m[i];
-	}
-    }
-}
-
-int compare_scores(const void *pa, const void *pb)
-{
-    state **a, **b;
-
-    a = (state**) pa;
-    b = (state**) pb;
     if ((*a)->score > (*b)->score) {
 	return 1;
     }
@@ -237,26 +257,23 @@ double xmin=0, xmax=0, ymin=0, ymax=0;
 
 int disp_x(double x)
 {
-    return floor(640 * (x-xmin)/(xmax-xmin));
+    return 640 * (x-xmin)/(xmax-xmin);
 }
 
 int disp_y(double y)
 {
-    return floor(480 * (y-ymin)/(ymax-ymin));
+    return 480 * (y-ymin)/(ymax-ymin);
 }
 
 char *option_string(evo_options opt)
 {
-    static char r[200];
+    char r[200];
 
     r[0] = 0;
     if (opt.old_ep) {
 	strcat(r, "EP ");
     }
 	
-    if (opt.crossover) {
-	strcat(r, "CROSSOVER ");
-    }
     if (opt.meta_mutate) {
 	strcat(r, "META ");
 	if (opt.recorded_step) {
@@ -273,23 +290,6 @@ char *option_string(evo_options opt)
 	strcat(r, "HUH?");
     }
     return r;
-}
-
-void permute(void *p, int n_elements, int size)
-{
-    void *t;
-    int i, j;
-
-    t = malloc(size);
-    for (i=1;i<n_elements;i++) {
-	j = floor((i+1)*drand48());
-	if (i != j) {
-	    memcpy(                t, (char *) p+i*size, size);
-	    memcpy((char *) p+i*size, (char *) p+j*size, size);
-	    memcpy((char *) p+j*size,          t,        size);
-	}
-    }
-    free(t);
 }
 
 int main(int argc, char *argv[])
@@ -313,25 +313,19 @@ int main(int argc, char *argv[])
 	0,			/* mutation_cooling */
 	0,			/* recorded_step */
 	0,			/* directional_mutation */
-	0,			/* crossover */
 	0,			/* mutation_rate */
 	0.5,			/* decay rate */
     };
     state **pop;
     int i, j, k, n;
     int calmings, evaluations;
-    double parents;
     int max_generation=200;
     int population_size=200, survivors=20;
     int found_limits=0;
 
     fun = funtab;
-    while ((ch = getopt(argc, argv, "C:p:e:G:c:mMrdgf:i:x:y:X:Y:")) != EOF) {
+    while ((ch = getopt(argc, argv, "p:e:G:c:mrdgf:i:x:y:X:Y:")) != EOF) {
 	switch (ch) {
-	case 'C':
-	    sscanf(optarg, "%lf", &parents);
-	    opt.crossover = 1;
-	    break;
 	case 'p':
 	    sscanf(optarg, "%d:%d", &survivors, &population_size);
 	    break;
@@ -404,12 +398,6 @@ int main(int argc, char *argv[])
 	    opt.recorded_step = 0;
 	    break;
 	    /* recorded step meta mutation */
-	case 'M':
-	    opt.meta_mutate = 2;
-	    opt.mutation_cooling = 0;
-	    opt.recorded_step = 0;
-	    break;
-	    /* recorded step meta mutation */
 	case 'r':
 	    opt.meta_mutate = 1;
 	    opt.mutation_cooling = 0;
@@ -469,7 +457,6 @@ int main(int argc, char *argv[])
 	}
 	fprintf(stderr, "usage: meta [-a] [-x] [-f function]\n"
 		"  -e means to use 1-1 EP\n"
-		"  -C parents indicates the average number of parent to use\n"
 		"  -c decay specifies a fixed exponential cooling schedule\n"
 		"  -m indicates that meta-evolution should be used\n"
 		"  -r indicates that recorded step meta-evolution is desired\n"
@@ -492,10 +479,8 @@ int main(int argc, char *argv[])
     for (i=0;i<population_size;i++) {
 	pop[i] = create_state(fun, llx, urx, lly, ury, x_coord, y_coord);
 	pop[i]->score = (fun->f)(pop[i]);
-	pop[i]->parents = parents;
 	evaluations++;
     }
-    permute(pop, population_size, sizeof(*pop));
     qsort(pop, population_size, sizeof(*pop), compare_scores);
 
     if (opt.mutation_cooling) {
@@ -520,9 +505,8 @@ int main(int argc, char *argv[])
 		   "text 15 0 0 {%s}\n"
 		   "text 15 0 -100 TARGET=%.4G\ntext 15 0 -200 BEST=%.4G\n"
 		   "text 15 0 -300 GENERATION=%d\n"
-		   "text 15 0 -500 PARENTS=%.2f\n"
 		   "gstate $h\n", option_string(opt),
-		   fun->target, pop[0]->score, i, pop[0]->parents);
+		   fun->target, pop[0]->score, i);
 	    if (opt.old_ep && opt.old_ep < survivors) n = opt.old_ep;
 	    else n = survivors;
 	    if (n > 200) n = 200;
@@ -566,17 +550,11 @@ int main(int argc, char *argv[])
 		    pop[opt.old_ep] = t;
 		}
 	    }
-	    permute(pop, opt.old_ep, sizeof(*pop));
 	    qsort(pop, opt.old_ep, sizeof(*pop), compare_scores);
 	}
 	else {
 	    for (j=survivors;j<population_size;j++) {
-		if (opt.crossover) {
-		    crossover(pop[j], pop[j%survivors], pop, survivors);
-		}
-		else {
-		    duplicate(pop[j], pop[j%survivors]);
-		}
+		duplicate(pop[j], pop[j%survivors]);
 	    }
 
 	    /* note that the unmutated members are at the end to encourage
