@@ -1,0 +1,35 @@
+meta is the primary test vehicle right now.
+
+current experiments in the code are
+
+  convergence acceleration methods
+meta evolution
+directed evolution
+recorded step
+
+  general techniques
+meta-mutation of crossover strategy
+
+  diversity maintenance
+speciation controls
+
+
+so far, the convergence acceleration methods are too good for highly
+multi-modal problems such as some of the iceo contest problems but
+they work very well on problems with very local rugosity and narrow
+valleys.
+
+speciation has problems with degeneracy.  the goal is to avoid
+starving secondary solutions of resources before they have had time to
+sufficiently explore their neighborhoods.  especially when convergence
+acceleration is being used, a dominant solution can appear early and
+become so successful that other potential solutions are crowded out
+and eventually go extinct.  two quick solutions are to retain lineage
+information and either limit the maximum number of solutions from a
+single lineage, or require that a minimum number of solutions from
+each lineage survive.  unfortunately, lineages often converge on the
+same solution which makes it appear desirable to do some sort of
+clustering to merge lineages (and create novel ones) when populations
+intrude on each other's territory.  how to do this is not clear.
+
+
