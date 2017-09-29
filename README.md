@@ -5,3 +5,5 @@ Implementations in R and C are available here. Visualization of
 convergence on various test functions are also available.
 
 See https://arxiv.org/abs/0803.3838
+
+Look in src/main/c for the C implementation with a skeletal README
