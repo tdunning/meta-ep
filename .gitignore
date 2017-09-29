@@ -1,4 +1,8 @@
 # composite to ignore java, c and Latex
+src/main/c/centroid
+src/main/c/spiral
+src/main/c/scale
+src/main/c/meta
 
 # Compiled class file
 *.class
