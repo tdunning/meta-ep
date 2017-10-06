@@ -1,5 +1,6 @@
 # Intellij files
 .idea
+.idea/*
 *.iml
 
 # composite to ignore java, c and Latex
