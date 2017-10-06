@@ -1,3 +1,7 @@
+# Intellij files
+.idea
+*.iml
+
 # composite to ignore java, c and Latex
 src/main/c/centroid
 src/main/c/spiral
