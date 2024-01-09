@@ -37,9 +37,9 @@ public class EvolutionaryProcess<S extends State, M extends Mutation<S>> impleme
     private int threadCount;
 
     public static class Step<S extends State> implements Comparable<Step> {
-        double fitness;
+        public double fitness;
+        public double omni;
         S old, current;
-        double omni;
 
         public Step(S old, S current, double omni) {
             this.old = old;
